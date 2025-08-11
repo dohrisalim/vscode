@@ -26,7 +26,46 @@ export const TodoListToolWriteOnlySettingId = 'chat.todoListTool.writeOnly';
 
 export const ManageTodoListToolToolId = 'manage_todo_list';
 
-export const ManageTodoListToolToolId = 'manage_todo_list';
+function createModelDescription(writeOnly: boolean): string {
+	const baseDescription = `Manage a structured todo list to track progress and plan tasks throughout your coding session. Use this tool VERY frequently to ensure task visibility and proper planning.
+
+When to use this tool:
+- Complex multi-step work requiring planning and tracking
+- When user provides multiple tasks or requests (numbered/comma-separated)
+- After receiving new instructions that require multiple steps
+- BEFORE starting work on any todo (mark as in-progress)
+- IMMEDIATELY after completing each todo (mark completed individually)
+- When breaking down larger tasks into smaller actionable steps
+- To give users visibility into your progress and planning
+
+When NOT to use:
+- Single, trivial tasks that can be completed in one step
+- Purely conversational/informational requests
+- When just reading files or performing simple searches
+
+CRITICAL workflow:
+1. Plan tasks by writing todo list with specific, actionable items
+2. Mark ONE todo as in-progress before starting work
+3. Complete the work for that specific todo
+4. Mark that todo as completed IMMEDIATELY
+5. Move to next todo and repeat
+
+Todo states:
+- not-started: Todo not yet begun
+- in-progress: Currently working (limit ONE at a time)
+- completed: Finished successfully
+
+IMPORTANT: Mark todos completed as soon as they are done. Do not batch completions.`;
+
+	const writeOnlyNote = ' This tool is in WRITE-ONLY mode - it will only update the todo list without reading existing items.';
+	const writeOnlyAppendix = ' This tool ONLY writes - it never reads existing todos.';
+
+	if (writeOnly) {
+		return baseDescription.replace('Manage a structured todo list', `Manage a structured todo list${writeOnlyNote}`) + writeOnlyAppendix;
+	}
+	
+	return baseDescription;
+}
 
 export function createManageTodoListToolData(writeOnly: boolean): IToolData {
 	const baseProperties: any = {
@@ -80,9 +119,7 @@ export function createManageTodoListToolData(writeOnly: boolean): IToolData {
 		icon: ThemeIcon.fromId(Codicon.checklist.id),
 		displayName: 'Update Todo List',
 		userDescription: 'Manage and track todo items for task planning',
-		modelDescription: writeOnly 
-			? 'Manage a structured todo list to track progress and plan tasks throughout your coding session. This tool is in WRITE-ONLY mode - it will only update the todo list without reading existing items. Use this tool VERY frequently to ensure task visibility and proper planning.\n\nWhen to use this tool:\n- Complex multi-step work requiring planning and tracking\n- When user provides multiple tasks or requests (numbered/comma-separated)\n- After receiving new instructions that require multiple steps\n- BEFORE starting work on any todo (mark as in-progress)\n- IMMEDIATELY after completing each todo (mark completed individually)\n- When breaking down larger tasks into smaller actionable steps\n- To give users visibility into your progress and planning\n\nWhen NOT to use:\n- Single, trivial tasks that can be completed in one step\n- Purely conversational/informational requests\n- When just reading files or performing simple searches\n\nCRITICAL workflow:\n1. Plan tasks by writing todo list with specific, actionable items\n2. Mark ONE todo as in-progress before starting work\n3. Complete the work for that specific todo\n4. Mark that todo as completed IMMEDIATELY\n5. Move to next todo and repeat\n\nTodo states:\n- not-started: Todo not yet begun\n- in-progress: Currently working (limit ONE at a time)\n- completed: Finished successfully\n\nIMPORTANT: Mark todos completed as soon as they are done. Do not batch completions. This tool ONLY writes - it never reads existing todos.'
-			: 'Manage a structured todo list to track progress and plan tasks throughout your coding session. Use this tool VERY frequently to ensure task visibility and proper planning.\n\nWhen to use this tool:\n- Complex multi-step work requiring planning and tracking\n- When user provides multiple tasks or requests (numbered/comma-separated)\n- After receiving new instructions that require multiple steps\n- BEFORE starting work on any todo (mark as in-progress)\n- IMMEDIATELY after completing each todo (mark completed individually)\n- When breaking down larger tasks into smaller actionable steps\n- To give users visibility into your progress and planning\n\nWhen NOT to use:\n- Single, trivial tasks that can be completed in one step\n- Purely conversational/informational requests\n- When just reading files or performing simple searches\n\nCRITICAL workflow:\n1. Plan tasks by writing todo list with specific, actionable items\n2. Mark ONE todo as in-progress before starting work\n3. Complete the work for that specific todo\n4. Mark that todo as completed IMMEDIATELY\n5. Move to next todo and repeat\n\nTodo states:\n- not-started: Todo not yet begun\n- in-progress: Currently working (limit ONE at a time)\n- completed: Finished successfully\n\nIMPORTANT: Mark todos completed as soon as they are done. Do not batch completions.',
+		modelDescription: createModelDescription(writeOnly),
 		source: ToolDataSource.Internal,
 		inputSchema: {
 			type: 'object',
@@ -114,6 +151,31 @@ export class ManageTodoListTool extends Disposable implements IToolImpl {
 		super();
 	}
 
+	private executeWriteOperation(args: IManageTodoListToolInputParams, storage: IChatTodoListStorage, chatSessionId: string): IToolResult {
+		if (!args.todoList) {
+			return {
+				content: [{
+					kind: 'text',
+					value: 'Error: todoList is required for write operation'
+				}]
+			};
+		}
+		
+		const todoList: IChatTodo[] = args.todoList.map((parsedTodo) => ({
+			id: parsedTodo.id,
+			title: parsedTodo.title,
+			description: parsedTodo.description,
+			status: parsedTodo.status
+		}));
+		storage.setTodoList(chatSessionId, todoList);
+		return {
+			content: [{
+				kind: 'text',
+				value: 'Successfully wrote todo list'
+			}]
+		};
+	}
+
 	async invoke(invocation: IToolInvocation, _countTokens: any, _progress: any, _token: CancellationToken): Promise<IToolResult> {
 		const chatSessionId = invocation.context?.sessionId;
 		if (chatSessionId === undefined) {
@@ -128,28 +190,7 @@ export class ManageTodoListTool extends Disposable implements IToolImpl {
 
 			// In write-only mode, we always perform a write operation
 			if (this.writeOnly) {
-				if (!args.todoList) {
-					return {
-						content: [{
-							kind: 'text',
-							value: 'Error: todoList is required for write operation'
-						}]
-					};
-				}
-				
-				const todoList: IChatTodo[] = args.todoList.map((parsedTodo) => ({
-					id: parsedTodo.id,
-					title: parsedTodo.title,
-					description: parsedTodo.description,
-					status: parsedTodo.status
-				}));
-				storage.setTodoList(chatSessionId, todoList);
-				return {
-					content: [{
-						kind: 'text',
-						value: 'Successfully wrote todo list'
-					}]
-				};
+				return this.executeWriteOperation(args, storage, chatSessionId);
 			}
 
 			// Regular mode: check operation parameter
@@ -174,19 +215,7 @@ export class ManageTodoListTool extends Disposable implements IToolImpl {
 					};
 				}
 				case 'write': {
-					const todoList: IChatTodo[] = args.todoList.map((parsedTodo) => ({
-						id: parsedTodo.id,
-						title: parsedTodo.title,
-						description: parsedTodo.description,
-						status: parsedTodo.status
-					}));
-					storage.setTodoList(chatSessionId, todoList);
-					return {
-						content: [{
-							kind: 'text',
-							value: 'Successfully wrote todo list'
-						}]
-					};
+					return this.executeWriteOperation(args, storage, chatSessionId);
 				}
 				default: {
 					const errorResult = 'Error: Unknown operation';
